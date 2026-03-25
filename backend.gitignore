@@ -1,0 +1,97 @@
+# ─── Dependencies ────────────────────────────────────────────────────────────
+node_modules/
+.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# ─── Environment files (NEVER commit these) ──────────────────────────────────
+.env
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+.env.*.local
+
+# ─── Next.js ─────────────────────────────────────────────────────────────────
+.next/
+out/
+build/
+dist/
+
+# ─── Next.js telemetry ───────────────────────────────────────────────────────
+.next/cache/
+
+# ─── TypeScript ──────────────────────────────────────────────────────────────
+*.tsbuildinfo
+next-env.d.ts
+
+# ─── Logs ────────────────────────────────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ─── Runtime / process ───────────────────────────────────────────────────────
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# ─── Testing ─────────────────────────────────────────────────────────────────
+coverage/
+*.lcov
+.nyc_output/
+
+# ─── OS generated ────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ─── Editor / IDE ────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.swp
+*.swo
+*~
+
+# ─── Docker local overrides ──────────────────────────────────────────────────
+docker-compose.override.yml
+
+# ─── Database ────────────────────────────────────────────────────────────────
+*.sql
+*.sqlite
+*.sqlite3
+pgdata/
+postgres-data/
+
+# ─── MQTT ────────────────────────────────────────────────────────────────────
+mosquitto/data/
+mosquitto/log/
+
+# ─── Uploads / user generated content ────────────────────────────────────────
+uploads/
+public/uploads/
+
+# ─── Misc ────────────────────────────────────────────────────────────────────
+*.pem
+*.key
+*.crt
+*.p12
+.vercel
+.netlify
