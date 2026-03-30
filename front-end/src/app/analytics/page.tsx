@@ -6,7 +6,7 @@ import {
   PieChart, Pie, Cell, CartesianGrid, LineChart, Line, Legend
 } from 'recharts'
 import { DashboardShell } from '@/components/layout/DashboardShell'
-import { Card, SectionHeader, StatCard, Spinner } from '@/components/ui'
+import { Card, SectionHeader, StatCard, Spinner } from '@/components/ui/index'
 import { analyticsApi, AnalyticsSummary, ResponseTimeData, RegionData, UtilizationData } from '@/lib/api'
 
 const CHART_COLORS = ['#3b82f6', '#10b981', '#f97316', '#6366f1', '#f59e0b', '#ef4444']

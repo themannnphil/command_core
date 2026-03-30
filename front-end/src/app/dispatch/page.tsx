@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import { Truck, MapPin, RefreshCw, Radio } from 'lucide-react'
 import { DashboardShell } from '@/components/layout/DashboardShell'
-import { Card, SectionHeader, Badge, Spinner, EmptyState, StatCard } from '@/components/ui'
+import { Card, SectionHeader, Badge, Spinner, EmptyState, StatCard } from '@/components/ui/index'
 import { dispatchApi, incidentApi, Vehicle, Dispatch, Responder } from '@/lib/api'
 import { RESPONDER_CONFIG, timeAgo, cn } from '@/lib/utils'
 import { useMqtt } from '@/lib/mqtt'

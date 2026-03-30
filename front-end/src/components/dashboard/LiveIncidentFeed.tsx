@@ -4,7 +4,7 @@ import { AlertTriangle, RefreshCw, ChevronRight } from 'lucide-react'
 import { incidentApi, Incident } from '@/lib/api'
 import { useMqtt } from '@/lib/mqtt'
 import { STATUS_CONFIG, RESPONDER_CONFIG, timeAgo, cn } from '@/lib/utils'
-import { Card, SectionHeader, EmptyState, StatusDot, Badge, Spinner, Button } from '@/components/ui'
+import { Card, SectionHeader, EmptyState, StatusDot, Badge, Spinner, Button } from '@/components/ui/index'
 import Link from 'next/link'
 
 export function LiveIncidentFeed({ limit = 8 }: { limit?: number }) {

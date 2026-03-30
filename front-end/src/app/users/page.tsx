@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Users, Plus, X, AlertTriangle, Shield, User } from 'lucide-react'
 import { DashboardShell } from '@/components/layout/DashboardShell'
-import { Card, Button, Spinner, EmptyState, Input, Select, Badge } from '@/components/ui'
+import { Card, Button, Spinner, EmptyState, Input, Select, Badge } from '@/components/ui/index'
 import { authApi, User as UserType, UserRole, RegisterPayload } from '@/lib/api'
 import { formatDate, cn } from '@/lib/utils'
 import { useAuth } from '@/lib/auth'

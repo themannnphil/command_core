@@ -3,7 +3,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { X, MapPin, AlertTriangle, Loader2 } from 'lucide-react'
 import { incidentApi, CreateIncidentPayload } from '@/lib/api'
 import { INCIDENT_TYPES } from '@/lib/utils'
-import { Button, Input, Select, Textarea } from '@/components/ui'
+import { Button, Input, Select, Textarea } from '@/components/ui/index'
 
 interface Props {
   onClose: () => void
