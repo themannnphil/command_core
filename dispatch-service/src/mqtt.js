@@ -6,10 +6,16 @@ let client = null;
 const connect = () => {
   const host = process.env.MQTT_HOST || "localhost";
   const port = process.env.MQTT_PORT || 1883;
+  const isProduction = process.env.NODE_ENV === "production";
+  const url = isProduction ? `wss://${host}` : `mqtt://${host}:${port}`;
 
-  client = mqtt.connect(`mqtt://${host}:${port}`, {
+  console.log(`[dispatch-service] Connecting to MQTT at ${url}`);
+
+  client = mqtt.connect(url, {
     clientId: `dispatch-service-${Date.now()}`,
     reconnectPeriod: 3000,
+    connectTimeout: 10000,
+    rejectUnauthorized: false,
   });
 
   client.on("connect", () => {
