@@ -1,4 +1,3 @@
-require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
@@ -6,12 +5,25 @@ const { pool, initDB } = require("./db");
 const { generateAccessToken, generateRefreshToken, verifyAccessToken, verifyRefreshToken } = require("./jwt");
 
 const app = express();
+
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(",") : []),
+];
+
 app.use(cors({
-  origin: ["http://localhost:3000", "http://127.0.0.1:3000"],
+  origin: (origin, callback) => {
+    // Allow requests with no origin (curl, Postman, mobile apps)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error(`CORS blocked: ${origin}`));
+  },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true,
 }));
+app.options("*", cors()); // handle preflight on every route
 app.use(express.json());
 
 // ─── Middleware: authenticate ───────────────────────────────
