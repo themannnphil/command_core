@@ -1,8 +1,8 @@
 const SERVICES = {
-  auth:      'http://localhost:3001',
-  incident:  'http://localhost:3002',
-  dispatch:  'http://localhost:3003',
-  analytics: 'http://localhost:3004',
+  auth:      process.env.NEXT_PUBLIC_AUTH_URL      || 'http://localhost:3001',
+  incident:  process.env.NEXT_PUBLIC_INCIDENT_URL  || 'http://localhost:3002',
+  dispatch:  process.env.NEXT_PUBLIC_DISPATCH_URL  || 'http://localhost:3003',
+  analytics: process.env.NEXT_PUBLIC_ANALYTICS_URL || 'http://localhost:3004',
 }
 
 let _token: string | null = null
