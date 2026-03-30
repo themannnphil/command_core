@@ -3,22 +3,30 @@ const mqtt = require("mqtt");
 let client = null;
 
 const connect = () => {
-  const host = process.env.MQTT_HOST || "localhost";
-  const port = process.env.MQTT_PORT || 1883;
-  const isProduction = process.env.NODE_ENV === "production";
-  const url = isProduction ? `wss://${host}` : `mqtt://${host}:${port}`;
+  const host     = process.env.MQTT_HOST     || "localhost";
+  const port     = process.env.MQTT_PORT     || 1883;
+  const username = process.env.MQTT_USERNAME || "";
+  const password = process.env.MQTT_PASSWORD || "";
+
+  // HiveMQ Cloud uses mqtts:// (TLS) on port 8883
+  // Locally use plain mqtt:// on 1883
+  const isCloud = process.env.NODE_ENV === "production" || username !== "";
+  const url = isCloud
+    ? `mqtts://${host}:${port}`
+    : `mqtt://${host}:${port}`;
 
   console.log(`[incident-service] Connecting to MQTT at ${url}`);
 
   client = mqtt.connect(url, {
     clientId: `incident-service-${Date.now()}`,
-    reconnectPeriod: 3000,
+    username: username || undefined,
+    password: password || undefined,
+    reconnectPeriod: 5000,
     connectTimeout: 10000,
-    rejectUnauthorized: false,
   });
 
   client.on("connect", () => {
-    console.log("[incident-service] MQTT connected to broker");
+    console.log("[incident-service] MQTT connected");
   });
 
   client.on("error", (err) => {
@@ -30,7 +38,6 @@ const connect = () => {
   });
 };
 
-// Publish a message to a topic
 const publish = (topic, payload) => {
   if (!client || !client.connected) {
     console.warn("[MQTT] Not connected, cannot publish to", topic);
