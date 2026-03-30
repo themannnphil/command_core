@@ -4,10 +4,16 @@ const { pool } = require("./db");
 const connect = () => {
   const host = process.env.MQTT_HOST || "localhost";
   const port = process.env.MQTT_PORT || 1883;
+  const isProduction = process.env.NODE_ENV === "production";
+  const url = isProduction ? `wss://${host}` : `mqtt://${host}:${port}`;
 
-  const client = mqtt.connect(`mqtt://${host}:${port}`, {
+  console.log(`[analytics-service] Connecting to MQTT at ${url}`);
+
+  const client = mqtt.connect(url, {
     clientId: `analytics-service-${Date.now()}`,
     reconnectPeriod: 3000,
+    connectTimeout: 10000,
+    rejectUnauthorized: false,
   });
 
   client.on("connect", () => {
