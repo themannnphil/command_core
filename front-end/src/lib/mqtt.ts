@@ -1,7 +1,11 @@
 'use client'
 import { useEffect, useRef, useCallback } from 'react'
 
-const MQTT_WS_URL = 'ws://localhost:9001'
+// Local:      ws://localhost:9001  (no auth)
+// Production: wss://xxx.hivemq.cloud:8884 (with credentials via env)
+const MQTT_WS_URL  = process.env.NEXT_PUBLIC_MQTT_WS_URL  || 'ws://localhost:9001'
+const MQTT_USER    = process.env.NEXT_PUBLIC_MQTT_USERNAME || ''
+const MQTT_PASS    = process.env.NEXT_PUBLIC_MQTT_PASSWORD || ''
 
 type MessageHandler = (topic: string, payload: unknown) => void
 
@@ -21,8 +25,10 @@ export function useMqtt(onMessage: MessageHandler) {
 
         const client = mqttModule.connect(MQTT_WS_URL, {
           clientId: `lifelink-dashboard-${Date.now()}`,
+          username: MQTT_USER || undefined,
+          password: MQTT_PASS || undefined,
           reconnectPeriod: 3000,
-          connectTimeout: 5000,
+          connectTimeout: 8000,
         })
 
         clientRef.current = client
