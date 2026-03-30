@@ -27,7 +27,6 @@ app.use(express.json());
 
 const JWT_SECRET = process.env.JWT_SECRET || "devjwtsecret";
 
-// ─── Middleware: authenticate ───────────────────────────────
 const authenticate = (req, res, next) => {
   const header = req.headers.authorization;
   if (!header?.startsWith("Bearer ")) {
@@ -40,6 +39,16 @@ const authenticate = (req, res, next) => {
     return res.status(401).json({ error: "Invalid or expired token" });
   }
 };
+
+// ─── Role → department type mapping ───────────────────────
+const ROLE_DEPT_TYPE = {
+  hospital_admin: "ambulance",
+  police_admin:   "police",
+  fire_admin:     "fire",
+};
+const getDeptType = (role) => ROLE_DEPT_TYPE[role] || null;
+
+const ADMIN_ROLES = ["system_admin", "hospital_admin", "police_admin", "fire_admin"];
 
 // ─── Haversine distance (km) ────────────────────────────────
 const haversine = (lat1, lon1, lat2, lon2) => {
@@ -56,17 +65,9 @@ const haversine = (lat1, lon1, lat2, lon2) => {
 
 // Map incident type → responder type
 const incidentTypeMap = {
-  robbery: "police",
-  crime: "police",
-  assault: "police",
-  theft: "police",
-  fire: "fire",
-  explosion: "fire",
-  "gas leak": "fire",
-  medical: "ambulance",
-  accident: "ambulance",
-  "heart attack": "ambulance",
-  injury: "ambulance",
+  robbery: "police", crime: "police", assault: "police", theft: "police",
+  fire: "fire", explosion: "fire", "gas leak": "fire",
+  medical: "ambulance", accident: "ambulance", "heart attack": "ambulance", injury: "ambulance",
 };
 
 const getResponderType = (incidentType) => {
@@ -74,10 +75,9 @@ const getResponderType = (incidentType) => {
   for (const [key, type] of Object.entries(incidentTypeMap)) {
     if (lower.includes(key)) return type;
   }
-  return "police"; // default
+  return "police";
 };
 
-// Find nearest available responder
 const findNearestResponder = async (incidentLat, incidentLon, responderType) => {
   const result = await pool.query(
     "SELECT * FROM responders WHERE type = $1 AND is_available = TRUE",
@@ -103,6 +103,9 @@ const findNearestResponder = async (incidentLat, incidentLon, responderType) => 
 
 // ─── POST /incidents ───────────────────────────────────────
 app.post("/incidents", authenticate, async (req, res) => {
+  if (!ADMIN_ROLES.includes(req.user.role)) {
+    return res.status(403).json({ error: "Admin role required to log incidents" });
+  }
   const { citizen_name, incident_type, latitude, longitude, notes } = req.body;
   if (!citizen_name || !incident_type || !latitude || !longitude) {
     return res.status(400).json({ error: "citizen_name, incident_type, latitude, longitude required" });
@@ -110,35 +113,27 @@ app.post("/incidents", authenticate, async (req, res) => {
 
   try {
     const responderType = getResponderType(incident_type);
-    const nearest = await findNearestResponder(
-      parseFloat(latitude),
-      parseFloat(longitude),
-      responderType
-    );
+    const nearest = await findNearestResponder(parseFloat(latitude), parseFloat(longitude), responderType);
 
-    // Create the incident
     const incidentResult = await pool.query(
-      `INSERT INTO incidents (citizen_name, incident_type, latitude, longitude, notes, created_by, assigned_unit, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      `INSERT INTO incidents
+         (citizen_name, incident_type, latitude, longitude, notes, created_by,
+          assigned_unit, responder_type, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
       [
-        citizen_name,
-        incident_type,
-        latitude,
-        longitude,
-        notes || null,
-        req.user.id,
+        citizen_name, incident_type, latitude, longitude,
+        notes || null, req.user.id,
         nearest?.id || null,
+        responderType,
         nearest ? "dispatched" : "created",
       ]
     );
     const incident = incidentResult.rows[0];
 
-    // Mark responder as unavailable
     if (nearest) {
       await pool.query("UPDATE responders SET is_available = FALSE WHERE id = $1", [nearest.id]);
     }
 
-    // ── MQTT PUBLISH: incidents/new ──────────────────────
     mqttClient.publish("incidents/new", {
       incidentId: incident.id,
       incidentType: incident_type,
@@ -146,19 +141,13 @@ app.post("/incidents", authenticate, async (req, res) => {
       longitude: parseFloat(longitude),
       citizenName: citizen_name,
       assignedUnit: nearest
-        ? {
-            id: nearest.id,
-            name: nearest.name,
-            type: nearest.type,
-            distanceKm: nearest.distanceKm,
-          }
+        ? { id: nearest.id, name: nearest.name, type: nearest.type, distanceKm: nearest.distanceKm }
         : null,
       status: incident.status,
       createdAt: incident.created_at,
       dispatchedBy: req.user.id,
     });
 
-    // ── MQTT PUBLISH: incidents/{id}/status ─────────────
     mqttClient.publish(`incidents/${incident.id}/status`, {
       incidentId: incident.id,
       status: incident.status,
@@ -181,12 +170,21 @@ app.post("/incidents", authenticate, async (req, res) => {
 // ─── GET /incidents/open ───────────────────────────────────
 app.get("/incidents/open", authenticate, async (req, res) => {
   try {
+    const deptType = getDeptType(req.user.role);
+    const params = [];
+    let where = "WHERE i.status != 'resolved'";
+    if (deptType) {
+      params.push(deptType);
+      where += ` AND i.responder_type = $${params.length}`;
+    }
+
     const result = await pool.query(
-      `SELECT i.*, r.name as responder_name, r.type as responder_type
+      `SELECT i.*, r.name as responder_name, r.latitude as responder_lat, r.longitude as responder_lon
        FROM incidents i
        LEFT JOIN responders r ON i.assigned_unit = r.id
-       WHERE i.status != 'resolved'
-       ORDER BY i.created_at DESC`
+       ${where}
+       ORDER BY i.created_at DESC`,
+      params
     );
     res.json(result.rows);
   } catch (err) {
@@ -198,13 +196,52 @@ app.get("/incidents/open", authenticate, async (req, res) => {
 app.get("/incidents/:id", authenticate, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT i.*, r.name as responder_name, r.type as responder_type, r.latitude as responder_lat, r.longitude as responder_lon
+      `SELECT i.*, r.name as responder_name, r.latitude as responder_lat, r.longitude as responder_lon
        FROM incidents i
        LEFT JOIN responders r ON i.assigned_unit = r.id
        WHERE i.id = $1`,
       [req.params.id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: "Incident not found" });
+    const inc = result.rows[0];
+
+    // Department access check
+    const deptType = getDeptType(req.user.role);
+    if (deptType && inc.responder_type && inc.responder_type !== deptType) {
+      return res.status(403).json({ error: "Access denied — incident outside your department" });
+    }
+
+    res.json(inc);
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ─── PUT /incidents/:id/report ─────────────────────────────
+app.put("/incidents/:id/report", authenticate, async (req, res) => {
+  if (!ADMIN_ROLES.includes(req.user.role)) {
+    return res.status(403).json({ error: "Admin role required" });
+  }
+  const { incident_report } = req.body;
+  if (!incident_report?.trim()) {
+    return res.status(400).json({ error: "incident_report is required" });
+  }
+  try {
+    // Verify department access
+    const check = await pool.query("SELECT responder_type, status FROM incidents WHERE id=$1", [req.params.id]);
+    if (check.rows.length === 0) return res.status(404).json({ error: "Incident not found" });
+    const deptType = getDeptType(req.user.role);
+    if (deptType && check.rows[0].responder_type && check.rows[0].responder_type !== deptType) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+    if (check.rows[0].status === "resolved") {
+      return res.status(400).json({ error: "Cannot update report on a resolved incident" });
+    }
+
+    const result = await pool.query(
+      "UPDATE incidents SET incident_report=$1, updated_at=NOW() WHERE id=$2 RETURNING *",
+      [incident_report.trim(), req.params.id]
+    );
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: "Server error" });
@@ -219,6 +256,23 @@ app.put("/incidents/:id/status", authenticate, async (req, res) => {
     return res.status(400).json({ error: `status must be one of: ${validStatuses.join(", ")}` });
   }
   try {
+    // Require incident report before resolving
+    if (status === "resolved") {
+      const check = await pool.query(
+        "SELECT incident_report, responder_type FROM incidents WHERE id=$1",
+        [req.params.id]
+      );
+      if (check.rows.length === 0) return res.status(404).json({ error: "Incident not found" });
+
+      const deptType = getDeptType(req.user.role);
+      if (deptType && check.rows[0].responder_type && check.rows[0].responder_type !== deptType) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      if (!check.rows[0].incident_report?.trim()) {
+        return res.status(400).json({ error: "An incident report must be filed before resolving this incident" });
+      }
+    }
+
     const result = await pool.query(
       "UPDATE incidents SET status=$1, updated_at=NOW() WHERE id=$2 RETURNING *",
       [status, req.params.id]
@@ -227,12 +281,10 @@ app.put("/incidents/:id/status", authenticate, async (req, res) => {
 
     const incident = result.rows[0];
 
-    // If resolved, free up the responder
     if (status === "resolved" && incident.assigned_unit) {
       await pool.query("UPDATE responders SET is_available = TRUE WHERE id = $1", [incident.assigned_unit]);
     }
 
-    // ── MQTT PUBLISH: status update ──────────────────────
     mqttClient.publish(`incidents/${req.params.id}/status`, {
       incidentId: req.params.id,
       status,
@@ -272,8 +324,142 @@ app.put("/incidents/:id/assign", authenticate, async (req, res) => {
 
 // ─── GET /responders ───────────────────────────────────────
 app.get("/responders", authenticate, async (req, res) => {
-  const result = await pool.query("SELECT * FROM responders ORDER BY type, name");
-  res.json(result.rows);
+  try {
+    const deptType = getDeptType(req.user.role);
+    if (deptType) {
+      const result = await pool.query(
+        "SELECT * FROM responders WHERE type=$1 ORDER BY name",
+        [deptType]
+      );
+      return res.json(result.rows);
+    }
+    const result = await pool.query("SELECT * FROM responders ORDER BY type, name");
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ─── POST /responders ──────────────────────────────────────
+app.post("/responders", authenticate, async (req, res) => {
+  if (!ADMIN_ROLES.includes(req.user.role)) {
+    return res.status(403).json({ error: "Admin role required" });
+  }
+  const { name, type, latitude, longitude } = req.body;
+  if (!name || !type || !latitude || !longitude) {
+    return res.status(400).json({ error: "name, type, latitude, longitude required" });
+  }
+  const allowedType = getDeptType(req.user.role);
+  if (allowedType && type !== allowedType) {
+    return res.status(403).json({ error: `Your role can only manage ${allowedType} responders` });
+  }
+  try {
+    const result = await pool.query(
+      "INSERT INTO responders (name, type, latitude, longitude, admin_id) VALUES ($1,$2,$3,$4,$5) RETURNING *",
+      [name, type, latitude, longitude, req.user.id]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ─── PUT /responders/:id/availability ──────────────────────
+app.put("/responders/:id/availability", authenticate, async (req, res) => {
+  if (!ADMIN_ROLES.includes(req.user.role)) {
+    return res.status(403).json({ error: "Admin role required" });
+  }
+  const { is_available } = req.body;
+  if (typeof is_available !== "boolean") {
+    return res.status(400).json({ error: "is_available (boolean) required" });
+  }
+  try {
+    const responder = await pool.query("SELECT * FROM responders WHERE id=$1", [req.params.id]);
+    if (responder.rows.length === 0) return res.status(404).json({ error: "Responder not found" });
+
+    const deptType = getDeptType(req.user.role);
+    if (deptType && responder.rows[0].type !== deptType) {
+      return res.status(403).json({ error: "Access denied — responder outside your department" });
+    }
+
+    const result = await pool.query(
+      "UPDATE responders SET is_available=$1 WHERE id=$2 RETURNING *",
+      [is_available, req.params.id]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ─── DELETE /responders/:id ─────────────────────────────────
+app.delete("/responders/:id", authenticate, async (req, res) => {
+  if (!ADMIN_ROLES.includes(req.user.role)) {
+    return res.status(403).json({ error: "Admin role required" });
+  }
+  try {
+    const responder = await pool.query("SELECT * FROM responders WHERE id=$1", [req.params.id]);
+    if (responder.rows.length === 0) return res.status(404).json({ error: "Responder not found" });
+
+    const deptType = getDeptType(req.user.role);
+    if (deptType && responder.rows[0].type !== deptType) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+
+    await pool.query("DELETE FROM responders WHERE id=$1", [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ─── GET /hospitals/capacity ───────────────────────────────
+app.get("/hospitals/capacity", authenticate, async (req, res) => {
+  if (!["system_admin", "hospital_admin"].includes(req.user.role)) {
+    return res.status(403).json({ error: "Access denied" });
+  }
+  try {
+    const result = await pool.query("SELECT * FROM hospital_capacity ORDER BY hospital_name");
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ─── POST /hospitals/capacity ──────────────────────────────
+app.post("/hospitals/capacity", authenticate, async (req, res) => {
+  if (!["system_admin", "hospital_admin"].includes(req.user.role)) {
+    return res.status(403).json({ error: "Access denied" });
+  }
+  const { hospital_name, total_beds, available_beds } = req.body;
+  if (!hospital_name) return res.status(400).json({ error: "hospital_name required" });
+  try {
+    const result = await pool.query(
+      "INSERT INTO hospital_capacity (hospital_name, total_beds, available_beds, admin_id) VALUES ($1,$2,$3,$4) RETURNING *",
+      [hospital_name, total_beds || 0, available_beds || 0, req.user.id]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ─── PUT /hospitals/capacity/:id ───────────────────────────
+app.put("/hospitals/capacity/:id", authenticate, async (req, res) => {
+  if (!["system_admin", "hospital_admin"].includes(req.user.role)) {
+    return res.status(403).json({ error: "Access denied" });
+  }
+  const { total_beds, available_beds } = req.body;
+  try {
+    const result = await pool.query(
+      "UPDATE hospital_capacity SET total_beds=$1, available_beds=$2, updated_at=NOW() WHERE id=$3 RETURNING *",
+      [total_beds, available_beds, req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: "Not found" });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
 app.get("/health", (req, res) => res.json({ status: "ok", service: "incident-service" }));

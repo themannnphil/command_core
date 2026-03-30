@@ -1,15 +1,23 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { BarChart3, Clock, Truck, AlertTriangle, RefreshCw } from 'lucide-react'
+import { BarChart3, Clock, AlertTriangle, RefreshCw, ShieldCheck, Flame, Ambulance } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, CartesianGrid, LineChart, Line, Legend
+  PieChart, Pie, Cell, CartesianGrid, Legend
 } from 'recharts'
 import { DashboardShell } from '@/components/layout/DashboardShell'
-import { Card, SectionHeader, StatCard, Spinner } from '@/components/ui/index'
+import { Card, SectionHeader, StatCard, Spinner, Badge } from '@/components/ui/index'
 import { analyticsApi, AnalyticsSummary, ResponseTimeData, RegionData, UtilizationData } from '@/lib/api'
+import { useAuth } from '@/lib/auth'
 
 const CHART_COLORS = ['#3b82f6', '#10b981', '#f97316', '#6366f1', '#f59e0b', '#ef4444']
+
+const DEPT_META: Record<string, { label: string; color: string; icon: React.ElementType }> = {
+  ambulance: { label: 'Hospital / Medical',  color: '#10b981', icon: Ambulance },
+  police:    { label: 'Police',              color: '#6366f1', icon: ShieldCheck },
+  fire:      { label: 'Fire Service',        color: '#f97316', icon: Flame },
+  all:       { label: 'System-wide',         color: '#3b82f6', icon: BarChart3 },
+}
 
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload?.length) return null
@@ -26,6 +34,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 }
 
 export default function AnalyticsPage() {
+  const { user } = useAuth()
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null)
   const [rt, setRt] = useState<ResponseTimeData | null>(null)
   const [region, setRegion] = useState<RegionData | null>(null)
@@ -52,6 +61,10 @@ export default function AnalyticsPage() {
 
   useEffect(() => { load() }, [load])
 
+  const dept = summary?.department || 'all'
+  const deptMeta = DEPT_META[dept] || DEPT_META.all
+  const DeptIcon = deptMeta.icon
+
   const resolvedPct = summary
     ? Math.round((summary.resolvedIncidents / (summary.totalIncidents || 1)) * 100)
     : 0
@@ -72,6 +85,7 @@ export default function AnalyticsPage() {
     total: parseInt(u.total_dispatches),
     resolved: parseInt(u.resolved),
     active: parseInt(u.active),
+    type: u.unit_type,
   })) || []
 
   const statusData = util?.statusSummary?.map((s, i) => ({
@@ -84,8 +98,21 @@ export default function AnalyticsPage() {
     <DashboardShell>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="font-display font-bold text-xl text-text-primary">Analytics</h1>
-          <p className="text-xs text-text-muted mt-0.5">Operational insights and performance metrics</p>
+          <div className="flex items-center gap-3 mb-1">
+            <h1 className="font-display font-bold text-xl text-text-primary">Analytics</h1>
+            {/* Department scope badge */}
+            <span className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full"
+              style={{ background: `${deptMeta.color}18`, color: deptMeta.color }}>
+              <DeptIcon size={11} />
+              {deptMeta.label}
+            </span>
+          </div>
+          <p className="text-xs text-text-muted">
+            {dept === 'all'
+              ? 'Global operational insights and performance metrics'
+              : `${deptMeta.label} department metrics only`
+            }
+          </p>
         </div>
         <button onClick={load} className="flex items-center gap-2 text-xs text-text-muted hover:text-text-primary transition-colors">
           <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
@@ -99,10 +126,15 @@ export default function AnalyticsPage() {
         <>
           {/* Summary stat cards */}
           <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-            <StatCard label="Total Incidents" value={summary?.totalIncidents ?? 0} icon={<AlertTriangle size={15} />} color="var(--danger)" />
-            <StatCard label="Resolved" value={`${summary?.resolvedIncidents ?? 0} (${resolvedPct}%)`} icon={<BarChart3 size={15} />} color="var(--success)" sub="Resolution rate" />
-            <StatCard label="Avg Response Time" value={summary?.avgResponseMinutes ? `${Number(summary.avgResponseMinutes).toFixed(1)}m` : 'N/A'} icon={<Clock size={15} />} color="var(--accent)" />
-            <StatCard label="Today" value={summary?.incidentsToday ?? 0} icon={<AlertTriangle size={15} />} color="var(--warning)" sub="Incidents logged today" />
+            <StatCard label="Total Incidents" value={summary?.totalIncidents ?? 0}
+              icon={<AlertTriangle size={15} />} color="var(--danger)" />
+            <StatCard label="Resolved" value={`${summary?.resolvedIncidents ?? 0} (${resolvedPct}%)`}
+              icon={<BarChart3 size={15} />} color="var(--success)" sub="Resolution rate" />
+            <StatCard label="Avg Response Time"
+              value={summary?.avgResponseMinutes ? `${Number(summary.avgResponseMinutes).toFixed(1)}m` : 'N/A'}
+              icon={<Clock size={15} />} color="var(--accent)" />
+            <StatCard label="Today" value={summary?.incidentsToday ?? 0}
+              icon={<AlertTriangle size={15} />} color="var(--warning)" sub="Incidents logged today" />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
@@ -128,7 +160,7 @@ export default function AnalyticsPage() {
               )}
             </Card>
 
-            {/* Incident status breakdown */}
+            {/* Status distribution */}
             <Card className="p-5">
               <SectionHeader title="Status Distribution" subtitle="Current breakdown by status" />
               {statusData.length === 0 ? (
@@ -196,20 +228,23 @@ export default function AnalyticsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {utilizationData.map((u, i) => (
-                      <tr key={i} className="border-b border-border-subtle hover:bg-surface-2 transition-colors">
-                        <td className="px-3 py-3 text-xs text-text-primary">{u.name}</td>
-                        <td className="px-3 py-3">
-                          <span className="text-[11px] font-medium px-2 py-0.5 rounded capitalize"
-                            style={{ color: CHART_COLORS[i % CHART_COLORS.length], background: `${CHART_COLORS[i % CHART_COLORS.length]}18` }}>
-                            {util?.responderUtilization[i]?.unit_type}
-                          </span>
-                        </td>
-                        <td className="px-3 py-3 text-xs font-semibold text-text-primary">{u.total}</td>
-                        <td className="px-3 py-3 text-xs text-success">{u.resolved}</td>
-                        <td className="px-3 py-3 text-xs text-warning">{u.active}</td>
-                      </tr>
-                    ))}
+                    {utilizationData.map((u, i) => {
+                      const typeMeta = DEPT_META[u.type] || DEPT_META.all
+                      return (
+                        <tr key={i} className="border-b border-border-subtle hover:bg-surface-2 transition-colors">
+                          <td className="px-3 py-3 text-xs text-text-primary">{u.name}</td>
+                          <td className="px-3 py-3">
+                            <span className="text-[11px] font-medium px-2 py-0.5 rounded capitalize"
+                              style={{ color: typeMeta.color, background: `${typeMeta.color}18` }}>
+                              {u.type}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 text-xs font-semibold text-text-primary">{u.total}</td>
+                          <td className="px-3 py-3 text-xs text-success">{u.resolved}</td>
+                          <td className="px-3 py-3 text-xs text-warning">{u.active}</td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>

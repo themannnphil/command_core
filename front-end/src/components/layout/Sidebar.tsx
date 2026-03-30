@@ -5,20 +5,42 @@ import { useAuth } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, AlertTriangle, Truck, BarChart3,
-  LogOut, Radio, Users, CrossIcon
+  LogOut, Radio, Users, Package
 } from 'lucide-react'
+import type { UserRole } from '@/lib/api'
 
-const navItems = [
-  { href: '/dashboard',   label: 'Overview',    icon: LayoutDashboard },
-  { href: '/incidents',   label: 'Incidents',   icon: AlertTriangle },
-  { href: '/dispatch',    label: 'Dispatch',    icon: Truck },
-  { href: '/analytics',  label: 'Analytics',   icon: BarChart3 },
-  { href: '/users',      label: 'Users',       icon: Users },
+interface NavItem {
+  href: string
+  label: string
+  icon: React.ElementType
+  roles: UserRole[] | null  // null = visible to all
+}
+
+const navItems: NavItem[] = [
+  { href: '/dashboard',  label: 'Overview',   icon: LayoutDashboard, roles: null },
+  { href: '/incidents',  label: 'Incidents',  icon: AlertTriangle,   roles: null },
+  { href: '/resources',  label: 'Resources',  icon: Package,         roles: ['system_admin', 'hospital_admin', 'police_admin', 'fire_admin'] },
+  { href: '/dispatch',   label: 'Dispatch',   icon: Truck,           roles: ['system_admin', 'ambulance_driver'] },
+  { href: '/analytics',  label: 'Analytics',  icon: BarChart3,       roles: null },
+  { href: '/users',      label: 'Users',      icon: Users,           roles: ['system_admin'] },
 ]
+
+const DEPT_LABELS: Partial<Record<UserRole, string>> = {
+  hospital_admin: 'Hospital',
+  police_admin:   'Police',
+  fire_admin:     'Fire',
+  system_admin:   'System',
+}
 
 export function Sidebar() {
   const pathname = usePathname()
   const { user, logout } = useAuth()
+
+  const visibleItems = navItems.filter(item =>
+    item.roles === null || (user?.role && item.roles.includes(user.role))
+  )
+
+  const deptLabel = user?.role ? DEPT_LABELS[user.role] : null
 
   return (
     <aside className="fixed left-0 top-0 h-full w-56 bg-surface border-r border-border flex flex-col z-40">
@@ -37,9 +59,19 @@ export function Sidebar() {
         </div>
       </div>
 
+      {/* Department badge */}
+      {deptLabel && (
+        <div className="px-5 py-2.5 border-b border-border">
+          <span className="text-[10px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded"
+            style={{ background: 'var(--accent-muted)', color: 'var(--accent)' }}>
+            {deptLabel} Dept
+          </span>
+        </div>
+      )}
+
       {/* Nav */}
       <nav className="flex-1 py-4 px-3 space-y-0.5 overflow-y-auto">
-        {navItems.map(({ href, label, icon: Icon }) => {
+        {visibleItems.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(href + '/')
           return (
             <Link key={href} href={href}
@@ -68,7 +100,7 @@ export function Sidebar() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-xs font-medium text-text-primary truncate">{user?.name}</p>
-            <p className="text-[10px] text-text-muted truncate capitalize">{user?.role?.replace('_', ' ')}</p>
+            <p className="text-[10px] text-text-muted truncate capitalize">{user?.role?.replace(/_/g, ' ')}</p>
           </div>
         </div>
         <button onClick={logout}

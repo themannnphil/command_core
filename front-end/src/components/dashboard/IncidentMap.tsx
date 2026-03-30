@@ -27,14 +27,19 @@ export function IncidentMap({
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
 
-    let L: any
+    let cancelled = false
     let map: any
 
     const init = async () => {
-      L = (await import('leaflet')).default
+      const L = (await import('leaflet')).default
       await import('leaflet/dist/leaflet.css')
 
-      map = L.map(containerRef.current!, { zoomControl: true, attributionControl: true })
+      if (cancelled || !containerRef.current) return
+      // Guard against StrictMode double-init
+      if ((containerRef.current as any)._leaflet_id) return
+
+      map = L.map(containerRef.current, { zoomControl: true, attributionControl: true })
+      if (cancelled) { map.remove(); return }
       mapRef.current = map
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -49,6 +54,7 @@ export function IncidentMap({
     init()
 
     return () => {
+      cancelled = true
       if (mapRef.current) { mapRef.current.remove(); mapRef.current = null }
     }
   }, [])

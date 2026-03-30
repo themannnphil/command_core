@@ -60,11 +60,40 @@ export const incidentApi = {
     request<{ incident: Incident }>(`${SERVICES.incident}/incidents/${id}/status`, {
       method: 'PUT', body: JSON.stringify({ status }),
     }),
+  fileReport: (id: string, incident_report: string) =>
+    request<Incident>(`${SERVICES.incident}/incidents/${id}/report`, {
+      method: 'PUT', body: JSON.stringify({ incident_report }),
+    }),
   assign: (id: string, unit_id: string) =>
     request<Incident>(`${SERVICES.incident}/incidents/${id}/assign`, {
       method: 'PUT', body: JSON.stringify({ unit_id }),
     }),
   responders: () => request<Responder[]>(`${SERVICES.incident}/responders`),
+}
+
+// ─── Resources ───────────────────────────────────────────
+export const resourceApi = {
+  responders: () => request<Responder[]>(`${SERVICES.incident}/responders`),
+  createResponder: (data: CreateResponderPayload) =>
+    request<Responder>(`${SERVICES.incident}/responders`, {
+      method: 'POST', body: JSON.stringify(data),
+    }),
+  updateAvailability: (id: string, is_available: boolean) =>
+    request<Responder>(`${SERVICES.incident}/responders/${id}/availability`, {
+      method: 'PUT', body: JSON.stringify({ is_available }),
+    }),
+  deleteResponder: (id: string) =>
+    request<{ success: boolean }>(`${SERVICES.incident}/responders/${id}`, { method: 'DELETE' }),
+  hospitalCapacity: () =>
+    request<HospitalCapacity[]>(`${SERVICES.incident}/hospitals/capacity`),
+  createHospitalCapacity: (data: CreateHospitalCapacityPayload) =>
+    request<HospitalCapacity>(`${SERVICES.incident}/hospitals/capacity`, {
+      method: 'POST', body: JSON.stringify(data),
+    }),
+  updateHospitalCapacity: (id: string, data: { total_beds: number; available_beds: number }) =>
+    request<HospitalCapacity>(`${SERVICES.incident}/hospitals/capacity/${id}`, {
+      method: 'PUT', body: JSON.stringify(data),
+    }),
 }
 
 // ─── Dispatch ────────────────────────────────────────────
@@ -112,9 +141,9 @@ export interface Incident {
   id: string; citizen_name: string; incident_type: string
   latitude: string; longitude: string; notes: string | null
   created_by: string; assigned_unit: string | null
+  responder_type?: ResponderType; incident_report?: string | null
   status: IncidentStatus; created_at: string; updated_at: string
-  responder_name?: string; responder_type?: ResponderType
-  responder_lat?: string; responder_lon?: string
+  responder_name?: string; responder_lat?: string; responder_lon?: string
 }
 export interface CreateIncidentPayload {
   citizen_name: string; incident_type: string
@@ -123,7 +152,18 @@ export interface CreateIncidentPayload {
 export interface Responder {
   id: string; name: string; type: ResponderType
   latitude: string; longitude: string
-  is_available: boolean; distanceKm?: string
+  is_available: boolean; admin_id?: string | null; distanceKm?: string
+}
+export interface CreateResponderPayload {
+  name: string; type: ResponderType; latitude: number; longitude: number
+}
+export interface HospitalCapacity {
+  id: string; hospital_name: string
+  total_beds: number; available_beds: number
+  admin_id: string | null; updated_at: string
+}
+export interface CreateHospitalCapacityPayload {
+  hospital_name: string; total_beds: number; available_beds: number
 }
 export interface Vehicle {
   id: string; vehicle_code: string; responder_id: string
@@ -151,6 +191,7 @@ export interface RegisterVehiclePayload {
 export interface AnalyticsSummary {
   totalIncidents: number; resolvedIncidents: number
   incidentsToday: number; avgResponseMinutes: string | null
+  department: string
 }
 export interface ResponseTimeData {
   summary: { resolved_count: string; avg_minutes: string; min_minutes: string; max_minutes: string }

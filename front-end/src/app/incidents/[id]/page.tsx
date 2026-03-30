@@ -1,9 +1,9 @@
 'use client'
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, MapPin, User, Clock, Truck, AlertTriangle, CheckCircle } from 'lucide-react'
+import { ArrowLeft, MapPin, User, Clock, Truck, AlertTriangle, CheckCircle, FileText } from 'lucide-react'
 import { DashboardShell } from '@/components/layout/DashboardShell'
-import { Card, Badge, Button, StatusDot, Spinner } from '@/components/ui/index'
+import { Card, Badge, Button, StatusDot, Spinner, Textarea } from '@/components/ui/index'
 import { incidentApi, dispatchApi, Incident, Dispatch, IncidentStatus } from '@/lib/api'
 import { STATUS_CONFIG, RESPONDER_CONFIG, formatDate, timeAgo } from '@/lib/utils'
 import { useAuth } from '@/lib/auth'
@@ -12,6 +12,7 @@ import { useMqtt } from '@/lib/mqtt'
 const IncidentMap = lazy(() => import('@/components/dashboard/IncidentMap').then(m => ({ default: m.IncidentMap })))
 
 const STATUS_FLOW: IncidentStatus[] = ['created', 'dispatched', 'in_progress', 'resolved']
+const ADMIN_ROLES = ['system_admin', 'hospital_admin', 'police_admin', 'fire_admin']
 
 export default function IncidentDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -21,6 +22,12 @@ export default function IncidentDetailPage() {
   const [dispatch, setDispatch] = useState<Dispatch | null>(null)
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(false)
+  const [showReportForm, setShowReportForm] = useState(false)
+  const [reportText, setReportText] = useState('')
+  const [reportSaving, setReportSaving] = useState(false)
+  const [reportError, setReportError] = useState('')
+
+  const isAdmin = user?.role && ADMIN_ROLES.includes(user.role)
 
   const load = useCallback(async () => {
     try {
@@ -28,7 +35,10 @@ export default function IncidentDetailPage() {
         incidentApi.getById(id),
         dispatchApi.dispatchByIncident(id),
       ])
-      if (inc.status === 'fulfilled') setIncident(inc.value)
+      if (inc.status === 'fulfilled') {
+        setIncident(inc.value)
+        setReportText(inc.value.incident_report || '')
+      }
       if (dis.status === 'fulfilled') setDispatch(dis.value)
     } finally {
       setLoading(false)
@@ -45,12 +55,34 @@ export default function IncidentDetailPage() {
   }, [id]))
 
   const updateStatus = async (status: IncidentStatus) => {
+    if (status === 'resolved' && !incident?.incident_report?.trim()) {
+      alert('Please file an incident report before resolving.')
+      setShowReportForm(true)
+      return
+    }
     setUpdating(true)
     try {
       await incidentApi.updateStatus(id, status)
       setIncident(prev => prev ? { ...prev, status } : prev)
+    } catch (e: any) {
+      alert(e.message || 'Failed to update status')
     } finally {
       setUpdating(false)
+    }
+  }
+
+  const saveReport = async () => {
+    if (!reportText.trim()) { setReportError('Report text is required'); return }
+    setReportSaving(true)
+    setReportError('')
+    try {
+      const updated = await incidentApi.fileReport(id, reportText.trim())
+      setIncident(prev => prev ? { ...prev, incident_report: updated.incident_report } : prev)
+      setShowReportForm(false)
+    } catch (e: any) {
+      setReportError(e.message || 'Failed to save report')
+    } finally {
+      setReportSaving(false)
     }
   }
 
@@ -73,7 +105,8 @@ export default function IncidentDetailPage() {
   const status = STATUS_CONFIG[incident.status]
   const responder = incident.responder_type ? RESPONDER_CONFIG[incident.responder_type] : null
   const currentIndex = STATUS_FLOW.indexOf(incident.status)
-  const canUpdate = user?.role === 'system_admin' && incident.status !== 'resolved'
+  const canUpdate = isAdmin && incident.status !== 'resolved'
+  const hasReport = !!incident.incident_report?.trim()
 
   return (
     <DashboardShell>
@@ -96,9 +129,17 @@ export default function IncidentDetailPage() {
           </div>
           {canUpdate && (
             <div className="flex items-center gap-2">
+              {!hasReport && (
+                <Button size="sm" variant="secondary" icon={<FileText size={13} />}
+                  onClick={() => setShowReportForm(v => !v)}>
+                  {showReportForm ? 'Cancel Report' : 'File Report'}
+                </Button>
+              )}
               {STATUS_FLOW.slice(currentIndex + 1).map(s => (
                 <Button key={s} size="sm"
                   variant={s === 'resolved' ? 'primary' : 'secondary'}
+                  disabled={s === 'resolved' && !hasReport}
+                  title={s === 'resolved' && !hasReport ? 'File a report first' : ''}
                   onClick={() => updateStatus(s)}
                   loading={updating}
                   icon={s === 'resolved' ? <CheckCircle size={13} /> : <AlertTriangle size={13} />}>
@@ -119,7 +160,7 @@ export default function IncidentDetailPage() {
             return (
               <div key={s} className="flex items-center flex-1">
                 <div className="flex flex-col items-center gap-1.5">
-                  <div className={`w-7 h-7 rounded-full flex items-center justify-center border-2 transition-all`}
+                  <div className="w-7 h-7 rounded-full flex items-center justify-center border-2 transition-all"
                     style={{
                       borderColor: done ? sc.color : 'var(--border)',
                       background: done ? sc.bg : 'transparent',
@@ -139,6 +180,30 @@ export default function IncidentDetailPage() {
           })}
         </div>
       </Card>
+
+      {/* Report form */}
+      {showReportForm && isAdmin && (
+        <Card className="p-5 mb-4 border-accent/30">
+          <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3 flex items-center gap-2">
+            <FileText size={13} /> Incident Report
+          </h3>
+          <Textarea
+            rows={5}
+            placeholder="Describe actions taken, outcome, and any relevant details..."
+            value={reportText}
+            onChange={e => setReportText(e.target.value)}
+            className="mb-3"
+          />
+          {reportError && <p className="text-xs text-danger mb-2">{reportError}</p>}
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setShowReportForm(false)}>Cancel</Button>
+            <Button variant="primary" size="sm" loading={reportSaving} icon={<FileText size={13} />}
+              onClick={saveReport}>
+              Save Report
+            </Button>
+          </div>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Left col */}
@@ -164,6 +229,26 @@ export default function IncidentDetailPage() {
               )}
             </div>
           </Card>
+
+          {/* Incident report (if filed) */}
+          {hasReport && (
+            <Card className="p-5">
+              <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3 flex items-center gap-2">
+                <FileText size={13} />
+                Incident Report
+                <span className="ml-auto text-[10px] font-medium text-success flex items-center gap-1">
+                  <CheckCircle size={10} /> Filed
+                </span>
+              </h3>
+              <p className="text-sm text-text-secondary leading-relaxed">{incident.incident_report}</p>
+              {isAdmin && incident.status !== 'resolved' && (
+                <button onClick={() => { setShowReportForm(true); setReportText(incident.incident_report || '') }}
+                  className="mt-3 text-xs text-text-muted hover:text-accent transition-colors">
+                  Edit report
+                </button>
+              )}
+            </Card>
+          )}
 
           {/* Dispatch info */}
           {(incident.responder_name || dispatch) && (

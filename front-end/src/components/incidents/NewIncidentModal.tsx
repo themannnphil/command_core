@@ -23,12 +23,20 @@ export function NewIncidentModal({ onClose, onCreated }: Props) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    let cancelled = false
     let map: any
+
     const initMap = async () => {
       if (!mapContainerRef.current) return
       const L = (await import('leaflet')).default
       await import('leaflet/dist/leaflet.css')
+
+      if (cancelled || !mapContainerRef.current) return
+      // Guard against StrictMode double-init
+      if ((mapContainerRef.current as any)._leaflet_id) return
+
       map = L.map(mapContainerRef.current, { zoomControl: true })
+      if (cancelled) { map.remove(); return }
       map.setView([form.latitude, form.longitude], 13)
       mapRef.current = map
 
@@ -36,7 +44,6 @@ export function NewIncidentModal({ onClose, onCreated }: Props) {
         attribution: '&copy; OpenStreetMap contributors',
       }).addTo(map)
 
-      // Initial marker
       markerRef.current = L.marker([form.latitude, form.longitude], { draggable: true }).addTo(map)
         .bindPopup('Incident location').openPopup()
 
@@ -51,8 +58,12 @@ export function NewIncidentModal({ onClose, onCreated }: Props) {
         setForm(f => ({ ...f, latitude: parseFloat(lat.toFixed(6)), longitude: parseFloat(lng.toFixed(6)) }))
       })
     }
+
     initMap()
-    return () => { if (map) map.remove() }
+    return () => {
+      cancelled = true
+      if (mapRef.current) { mapRef.current.remove(); mapRef.current = null }
+    }
   }, [])
 
   const submit = async () => {

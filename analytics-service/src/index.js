@@ -40,29 +40,57 @@ const authenticate = (req, res, next) => {
   }
 };
 
+// Role → department type scoping
+const ROLE_DEPT_TYPE = {
+  hospital_admin: "ambulance",
+  police_admin:   "police",
+  fire_admin:     "fire",
+};
+const getDeptType = (role) => ROLE_DEPT_TYPE[role] || null;
+
+// Build a parameterized WHERE clause for type scoping
+const buildTypeFilter = (deptType, existingParams = []) => {
+  if (!deptType) return { clause: "", params: existingParams };
+  const idx = existingParams.length + 1;
+  return {
+    clause: `AND assigned_unit_type = $${idx}`,
+    params: [...existingParams, deptType],
+  };
+};
+
 // ─── GET /analytics/response-times ────────────────────────
 app.get("/analytics/response-times", authenticate, async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT
+    const deptType = getDeptType(req.user.role);
+    const joinClause = deptType
+      ? `JOIN incident_events ie ON rt.incident_id = ie.incident_id AND ie.assigned_unit_type = $1`
+      : "";
+    const deptParams = deptType ? [deptType] : [];
+
+    const result = await pool.query(
+      `SELECT
         COUNT(*) FILTER (WHERE resolved_at IS NOT NULL) AS resolved_count,
         ROUND(AVG(duration_minutes) FILTER (WHERE resolved_at IS NOT NULL), 2) AS avg_minutes,
         ROUND(MIN(duration_minutes) FILTER (WHERE resolved_at IS NOT NULL), 2) AS min_minutes,
         ROUND(MAX(duration_minutes) FILTER (WHERE resolved_at IS NOT NULL), 2) AS max_minutes
-      FROM response_times
-    `);
+       FROM response_times rt
+       ${joinClause}`,
+      deptParams
+    );
 
-    const breakdown = await pool.query(`
-      SELECT
+    const breakdown = await pool.query(
+      `SELECT
         ie.assigned_unit_type AS responder_type,
         COUNT(*) AS total,
         ROUND(AVG(rt.duration_minutes), 2) AS avg_minutes
-      FROM response_times rt
-      JOIN incident_events ie ON rt.incident_id = ie.incident_id
-      WHERE rt.resolved_at IS NOT NULL
-      GROUP BY ie.assigned_unit_type
-      ORDER BY avg_minutes ASC
-    `);
+       FROM response_times rt
+       JOIN incident_events ie ON rt.incident_id = ie.incident_id
+       WHERE rt.resolved_at IS NOT NULL
+         ${deptType ? `AND ie.assigned_unit_type = $1` : ""}
+       GROUP BY ie.assigned_unit_type
+       ORDER BY avg_minutes ASC`,
+      deptParams
+    );
 
     res.json({
       summary: result.rows[0],
@@ -77,25 +105,32 @@ app.get("/analytics/response-times", authenticate, async (req, res) => {
 // ─── GET /analytics/incidents-by-region ───────────────────
 app.get("/analytics/incidents-by-region", authenticate, async (req, res) => {
   try {
-    // Round coords to 2 decimal places as a proxy for region (~1km grid)
-    const result = await pool.query(`
-      SELECT
+    const deptType = getDeptType(req.user.role);
+    const deptParams = deptType ? [deptType] : [];
+    const typeWhere = deptType ? `WHERE assigned_unit_type = $1` : "";
+
+    const result = await pool.query(
+      `SELECT
         ROUND(latitude::numeric, 2) AS region_lat,
         ROUND(longitude::numeric, 2) AS region_lon,
         incident_type,
         COUNT(*) AS count,
         COUNT(*) FILTER (WHERE status = 'resolved') AS resolved
-      FROM incident_events
-      GROUP BY region_lat, region_lon, incident_type
-      ORDER BY count DESC
-    `);
+       FROM incident_events
+       ${typeWhere}
+       GROUP BY region_lat, region_lon, incident_type
+       ORDER BY count DESC`,
+      deptParams
+    );
 
-    const byType = await pool.query(`
-      SELECT incident_type, COUNT(*) AS count
-      FROM incident_events
-      GROUP BY incident_type
-      ORDER BY count DESC
-    `);
+    const byType = await pool.query(
+      `SELECT incident_type, COUNT(*) AS count
+       FROM incident_events
+       ${typeWhere}
+       GROUP BY incident_type
+       ORDER BY count DESC`,
+      deptParams
+    );
 
     res.json({
       byRegion: result.rows,
@@ -109,24 +144,35 @@ app.get("/analytics/incidents-by-region", authenticate, async (req, res) => {
 // ─── GET /analytics/resource-utilization ──────────────────
 app.get("/analytics/resource-utilization", authenticate, async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT
+    const deptType = getDeptType(req.user.role);
+    const deptParams = deptType ? [deptType] : [];
+    const typeWhere = deptType
+      ? `WHERE assigned_unit_name IS NOT NULL AND assigned_unit_type = $1`
+      : `WHERE assigned_unit_name IS NOT NULL`;
+
+    const result = await pool.query(
+      `SELECT
         assigned_unit_name AS unit_name,
         assigned_unit_type AS unit_type,
         COUNT(*) AS total_dispatches,
         COUNT(*) FILTER (WHERE status = 'resolved') AS resolved,
         COUNT(*) FILTER (WHERE status != 'resolved') AS active
-      FROM incident_events
-      WHERE assigned_unit_name IS NOT NULL
-      GROUP BY assigned_unit_name, assigned_unit_type
-      ORDER BY total_dispatches DESC
-    `);
+       FROM incident_events
+       ${typeWhere}
+       GROUP BY assigned_unit_name, assigned_unit_type
+       ORDER BY total_dispatches DESC`,
+      deptParams
+    );
 
-    const statusSummary = await pool.query(`
-      SELECT status, COUNT(*) AS count
-      FROM incident_events
-      GROUP BY status
-    `);
+    const statusSummaryParams = deptType ? [deptType] : [];
+    const statusWhere = deptType ? `WHERE assigned_unit_type = $1` : "";
+    const statusSummary = await pool.query(
+      `SELECT status, COUNT(*) AS count
+       FROM incident_events
+       ${statusWhere}
+       GROUP BY status`,
+      statusSummaryParams
+    );
 
     res.json({
       responderUtilization: result.rows,
@@ -140,20 +186,40 @@ app.get("/analytics/resource-utilization", authenticate, async (req, res) => {
 // ─── GET /analytics/summary ────────────────────────────────
 app.get("/analytics/summary", authenticate, async (req, res) => {
   try {
-    const total = await pool.query("SELECT COUNT(*) FROM incident_events");
-    const resolved = await pool.query("SELECT COUNT(*) FROM incident_events WHERE status='resolved'");
+    const deptType = getDeptType(req.user.role);
+    const deptParams = deptType ? [deptType] : [];
+    const typeWhere = deptType ? `AND assigned_unit_type = $1` : "";
+
+    const total = await pool.query(
+      `SELECT COUNT(*) FROM incident_events WHERE 1=1 ${typeWhere}`,
+      deptParams
+    );
+    const resolved = await pool.query(
+      `SELECT COUNT(*) FROM incident_events WHERE status='resolved' ${typeWhere}`,
+      deptParams
+    );
     const today = await pool.query(
-      "SELECT COUNT(*) FROM incident_events WHERE received_at >= CURRENT_DATE"
+      `SELECT COUNT(*) FROM incident_events WHERE received_at >= CURRENT_DATE ${typeWhere}`,
+      deptParams
     );
-    const avgResponse = await pool.query(
-      "SELECT ROUND(AVG(duration_minutes),2) as avg FROM response_times WHERE resolved_at IS NOT NULL"
-    );
+
+    // Response time avg — join to filter by type if scoped
+    const avgQuery = deptType
+      ? `SELECT ROUND(AVG(rt.duration_minutes),2) as avg
+         FROM response_times rt
+         JOIN incident_events ie ON rt.incident_id = ie.incident_id
+         WHERE rt.resolved_at IS NOT NULL AND ie.assigned_unit_type = $1`
+      : `SELECT ROUND(AVG(duration_minutes),2) as avg
+         FROM response_times WHERE resolved_at IS NOT NULL`;
+
+    const avgResponse = await pool.query(avgQuery, deptParams);
 
     res.json({
       totalIncidents: parseInt(total.rows[0].count),
       resolvedIncidents: parseInt(resolved.rows[0].count),
       incidentsToday: parseInt(today.rows[0].count),
       avgResponseMinutes: avgResponse.rows[0].avg || null,
+      department: deptType || "all",
     });
   } catch (err) {
     res.status(500).json({ error: "Server error" });
