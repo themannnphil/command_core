@@ -157,7 +157,7 @@ export default function DashboardPage() {
       {/* Map + Feed */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         {/* Map */}
-        <Card className="xl:col-span-2 overflow-hidden" style={{ height: 460 }}>
+        <Card className="xl:col-span-2 overflow-hidden h-[460px]">
           <div className="px-4 py-3 border-b border-border flex items-center justify-between">
             <span className="text-xs font-semibold text-text-primary">Live Dispatch Map</span>
             <div className="flex items-center gap-4 text-[10px] text-text-muted">
