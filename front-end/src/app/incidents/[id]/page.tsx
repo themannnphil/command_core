@@ -205,7 +205,7 @@ export default function IncidentDetailPage() {
         </div>
 
         {/* Map */}
-        <Card className="overflow-hidden" style={{ height: 360 }}>
+        <Card className="overflow-hidden h-[520px]">
           <div className="px-4 py-3 border-b border-border">
             <span className="text-xs font-semibold text-text-primary">Location</span>
           </div>

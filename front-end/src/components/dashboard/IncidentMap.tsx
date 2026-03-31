@@ -32,7 +32,6 @@ export function IncidentMap({
 
     const init = async () => {
       L = (await import('leaflet')).default
-      await import('leaflet/dist/leaflet.css')
 
       map = L.map(containerRef.current!, { zoomControl: true, attributionControl: true })
       mapRef.current = map

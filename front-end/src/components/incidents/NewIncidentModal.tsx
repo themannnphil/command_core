@@ -27,7 +27,6 @@ export function NewIncidentModal({ onClose, onCreated }: Props) {
     const initMap = async () => {
       if (!mapContainerRef.current) return
       const L = (await import('leaflet')).default
-      await import('leaflet/dist/leaflet.css')
       map = L.map(mapContainerRef.current, { zoomControl: true })
       map.setView([form.latitude, form.longitude], 13)
       mapRef.current = map

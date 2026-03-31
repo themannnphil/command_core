@@ -32,7 +32,12 @@ export function LiveIncidentFeed({ limit = 8 }: { limit?: number }) {
         const updated = [payload as unknown as Incident, ...prev].slice(0, limit)
         return updated
       })
-      setNewIds(prev => new Set([...prev, payload.incidentId]))
+      setNewIds(prev => {
+        const next = new Set(Array.from(prev));
+        next.add(payload.incidentId);
+        return next;
+      });
+
       setTimeout(() => {
         setNewIds(prev => { const n = new Set(prev); n.delete(payload.incidentId); return n })
       }, 4000)
@@ -84,7 +89,9 @@ export function LiveIncidentFeed({ limit = 8 }: { limit?: number }) {
                   'flex items-start gap-3 px-4 py-3 hover:bg-surface-2 transition-colors group',
                   isNew && 'animate-slide-in bg-accent-muted'
                 )}>
-                <StatusDot color={status.color} pulse={status.pulse} className="mt-1" />
+                <div className="mt-1">
+                  <StatusDot color={status.color} pulse={status.pulse} />
+                </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
                     <span className="text-xs font-semibold text-text-primary capitalize truncate">
