@@ -32,7 +32,6 @@ export function IncidentMap({
 
     const init = async () => {
       const L = (await import('leaflet')).default
-      await import('leaflet/dist/leaflet.css')
 
       if (cancelled || !containerRef.current) return
       // Guard against StrictMode double-init
