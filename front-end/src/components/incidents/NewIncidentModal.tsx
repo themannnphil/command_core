@@ -29,7 +29,6 @@ export function NewIncidentModal({ onClose, onCreated }: Props) {
     const initMap = async () => {
       if (!mapContainerRef.current) return
       const L = (await import('leaflet')).default
-      await import('leaflet/dist/leaflet.css')
 
       if (cancelled || !mapContainerRef.current) return
       // Guard against StrictMode double-init
