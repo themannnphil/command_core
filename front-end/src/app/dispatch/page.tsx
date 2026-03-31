@@ -129,7 +129,7 @@ export default function DispatchPage() {
         </div>
 
         {/* Map */}
-        <Card className="xl:col-span-2 overflow-hidden" style={{ height: 520 }}>
+        <Card className="xl:col-span-2 overflow-hidden h-[520px]">
           <div className="px-4 py-3 border-b border-border flex items-center justify-between">
             <span className="text-xs font-semibold text-text-primary">
               {selected ? `Tracking: ${selected.responder_name || selected.vehicle_code}` : 'All Vehicle Positions'}
